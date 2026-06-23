@@ -3,7 +3,7 @@
 module tb_top;
 
 localparam REG_SIZE = 8;
-localparam REG_NUM = 16;
+localparam REG_NUM = 8;
 
 logic clk_100 = 0;  
 logic clk_50 = 0;
@@ -13,9 +13,9 @@ logic clk_15 = 0;
 
 always #5 clk_100 = ~clk_100;  // 100 MHz
 always #10 clk_50 = ~clk_50;   // 50 MHz
-always #12.5 clk_40 = ~clk_40;   // 40 MHz
+always #25 clk_40 = ~clk_40;   // 40 MHz
 always #20 clk_25 = ~clk_25;   // 25 MHz
-always #33.33 clk_15 = ~clk_15;   // 15 MHz (aproximadamente)
+always #33.333 clk_15 = ~clk_15;   // 15 MHz (aproximadamente)
 
 logic rst;
 logic start_i;
@@ -59,6 +59,7 @@ function automatic logic [7:0] valor_esperado(input logic [1:0] sensor_id, input
 endfunction
 
 task coleta_sensor(input logic [1:0] sensor_id);
+    start_i = 1'b0;
     // Esperando o CD dar "ready"
     @(posedge clk_100);
     while(!ready_o) @(posedge clk_100);
@@ -67,6 +68,7 @@ task coleta_sensor(input logic [1:0] sensor_id);
     @(posedge clk_100);
     reg_id_i = sensor_id;
     start_i = 1'b1;
+    @(posedge clk_100);
     @(posedge clk_100);
     start_i = 1'b0;
 
@@ -88,16 +90,15 @@ task verifica_coleta(input logic [1:0] sensor_id);
     for (int r = 0; r < REG_NUM; r++) begin
         exp_val = valor_esperado(sensor_id, r);
 
-        mem_addr_tb = mem_base_addr + r;
+        mem_addr_tb = mem_base_addr + r;    
         repeat(3) @(posedge clk_100);
         got_val = mem_data_o;
-            
 
         if (got_val == exp_val) begin
-            $display("[PASS] Sensor ID=0x%02h reg[%0d]: esperado=0x%02h encontrou=0x%02h", sensor_id, r, exp_val, got_val);
+            $display("[TB] PASS! Sensor %d reg[%0d]: Esperado=0x%02h Encontrado=0x%02h", sensor_id, r, exp_val, got_val);
             pass_count++;
         end else begin
-            $display("[FAIL] Sensor ID=0x%02h reg[%0d]: esperado=0x%02h encontrou=0x%02h", sensor_id, r, exp_val, got_val);
+            $display("[TB] PASS! Sensor %d reg[%0d]: Esperado=0x%02h Encontrado=0x%02h", sensor_id, r, exp_val, got_val);
             fail_count++;
         end
     end
@@ -118,24 +119,28 @@ initial begin
         rst = 1'b0;
         repeat(10) @(posedge clk_100);
 
-        $display("\n[TB] Teste 1: Coleta Sensor 1");
+        $display("\n[TB] Teste 1.a: Coleta Sensor 1");
         coleta_sensor(2'b00);
+        $display("\n[TB] Teste 1.b: Verifica Coleta 1");
         verifica_coleta(2'b00);
 
-        $display("\n[TB] Teste 2: Coleta Sensor 2");
+        $display("\n[TB] Teste 2.a: Coleta Sensor 2");
         coleta_sensor(2'b01);
+        $display("\n[TB] Teste 2.b: Verifica Coleta 2");
         verifica_coleta(2'b01);
 
-        $display("\n[TB] Teste 3: Coleta Sensor 3");
+        $display("\n[TB] Teste 3.a: Coleta Sensor 3");
         coleta_sensor(2'b10);
+        $display("\n[TB] Teste 3.b: Verifica Coleta 3");
         verifica_coleta(2'b10);
 
-        $display("\n[TB] Test 4: Coleta Sensor 4");
+        $display("\n[TB] Teste 4.a: Coleta Sensor 4");
         coleta_sensor(2'b11);
+        $display("\n[TB] Teste 4.b: Verifica Coleta 4");
         verifica_coleta(2'b11);
 
         $display(" ");
-        $display(" RESULTADOS: %0d PASS, %0d FAIL", pass_count, fail_count);
+        $display("RESULTADOS: %0d PASS, %0d FAIL", pass_count, fail_count);
 
 end
 
