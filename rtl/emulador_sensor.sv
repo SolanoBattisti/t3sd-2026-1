@@ -19,88 +19,96 @@ module emulador_sensor #(
 // temp register
 logic[REG_SIZE-1:0] temp_reg;
 
-logic [$clog2(REG_NUM)-1:0] addr_received; // Endereço do registrador para coletar, recebido pelo MOSI 
-logic [5:0] bit_cnt_mosi; // Bit counter para o MOSI
-logic [5:0] bit_cnt_miso; // Bit counter para o MISO
+assign sclk = clk;
+
+
+logic [REG_SIZE-1:0] bit_cnt_miso; // Bit counter para o MISO
+logic [$clog2(REG_NUM)-1:0] reg_idx;    // index do registrador sendo enviado
+
+// MISO é sempre o bit mais significativo do registrador sendo enviado, se o sensor estiver selecionado
+always_comb begin
+    if(!se) miso = 1'bz;
+    else miso = temp_reg[REG_SIZE-1];
+end
 
 
 // state machine - SPI
 typedef enum logic [1:0] {
-    IDLE, RECEIVE, SEND
+    IDLE, SETUP, SEND, NEXT_REG
 } state_t;
-
-state_t EA;  // estado atual
-state_t PE;  // próximo estado
-
-// clk de saída do sensor,
-// para sincronizar com o coletor
-assign sclk = (EA == IDLE) ? 1'b0 : clk;
-
-// Lógica para decidir próximo estado
-always_comb begin
-    case (EA)
-        IDLE:       PE = (se && !rst) ? RECEIVE : IDLE;
-
-        RECEIVE:    PE = (bit_cnt_mosi == $clog2(REG_NUM)) ? SEND : RECEIVE;
-
-        SEND:       PE = (bit_cnt_miso == REG_SIZE - 1) ? IDLE : SEND;
-        default:    PE = IDLE;
-    endcase
-end
+state_t state;
 
 
-// FSM Sequencial
-always_ff @(posedge clk or posedge rst) begin
-    if(rst)
-        EA <= IDLE;
-    else 
-        EA <= PE;
-end   
 
-// lê/escreve dos registradores internos 
-// de acordo com o estado atual
 always_ff @(posedge clk or posedge rst) begin
     if(rst) begin
-        bit_cnt_mosi   <= '0;
-        bit_cnt_miso   <= '0;
-        addr_received <= '0;
-        temp_reg  <= '0;
-        miso <= 1'b0;
+        bit_cnt_miso <= '0;
+        temp_reg <= '0;
+        reg_idx <= '0;
     end
     else begin
-    case (EA)
-        IDLE: begin
-            bit_cnt_mosi   <= '0;
-            bit_cnt_miso   <= '0;
-            addr_received <= '0;
-            temp_reg  <= '0;
-        end
- 
-        RECEIVE: begin
-            bit_cnt_miso <= '0;
-            addr_received <= {addr_received[$clog2(REG_NUM)-2:0], mosi};
-            bit_cnt_mosi <= bit_cnt_mosi + 1;
-            temp_reg <= regs[addr_received];
-        end
- 
-        SEND: begin
-            miso <= temp_reg[REG_SIZE-1];
-            temp_reg <= {temp_reg[REG_SIZE-2:0], 1'b0}; // temp_reg << 1
-            bit_cnt_miso  <= bit_cnt_miso + 1;
-        end
- 
-    endcase
+        case (state)
+            IDLE: begin
+                reg_idx <= '0;
+                bit_cnt_miso <= '0;
+                temp_reg <= '0;
+                if(se) state <= SETUP; 
+            end
+
+            SETUP: begin
+                if(!se) state <= IDLE;
+                else begin
+                    bit_cnt_miso <= '0;
+                    temp_reg <= regs[reg_idx];  // Carrega o temp_reg
+                    if(mosi) begin  // MOSI vindo do CD sinaliza para início do envio
+                        state <= SEND;
+                    end
+                end
+            end
+
+            SEND: begin
+                if(!se) state <= IDLE;
+                else begin
+                    temp_reg <= {temp_reg[REG_SIZE-2:0], 1'b0}; // temp_reg << 1
+                    bit_cnt_miso <= bit_cnt_miso + 1;
+                    if(bit_cnt_miso == REG_SIZE - 1) begin
+                        state <= NEXT_REG;
+                    end
+                end
+            end
+
+            NEXT_REG: begin
+                if(!se) begin
+                    state <= IDLE;
+                end else begin
+                    // Passa para o próximo registrador ou termina
+                    if(reg_idx == REG_NUM - 1) state <= IDLE;
+                    else begin
+                        reg_idx <= reg_idx + 1;
+                        state <= SETUP;
+                    end
+                end
+            end
+
+            default: state <= IDLE;
+        endcase
     end
 end
 
+// Print para teste do MISO
+// always_ff @(negedge clk) begin
+//     if(state == SEND) begin
+//         $display("miso: %b, bit_cnt_miso: %d", miso, bit_cnt_miso);
+//     end
+// end
 
 // atualiza a leitura do sensor periodicamente
 genvar i;
 generate
     for (i = 0; i < REG_NUM; i++) begin
-        always_ff @(posedge clk or posedge rst) begin
+        always_comb begin
             if(rst) regs[i] = 0;
-            else regs[i] = i*$random(REG_ID); // qualquer coisa no sensor
+            else regs[i] = 60 + REG_ID*29 + i*23; // qualquer coisa no sensor
         end
     end
 endgenerate
