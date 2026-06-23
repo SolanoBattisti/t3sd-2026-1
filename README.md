@@ -27,4 +27,13 @@ README.md
 Dentro do diretório, digitar `do sim.do` no terminal do Questa
 
 ### Resultados
-No terminal do Questa, aparecerá a coleta de cada um dos registradores de cada sensor, comparando o esperado (pego direto dos registradores) com o encontrado na memória.
+No terminal do Questa, aparecerá a coleta de cada um dos registradores de cada sensor (mostrando o que foi escrito na memória), e depois comparando com o esperado (pego direto dos registradores).
+
+Para um dado registrador x do sensor 0, por exemplo, a coleta e verificação aparecerão como algo assim:
+```
+[MEM] Escrevendo 0xNN no endereço x da memória
+
+[TB] PASS! Sensor 0 reg[x]: Esperado=0xNN Encontrado=0xNN
+ou
+[TB] FAIL! Sensor 0 reg[x]: Esperado=0xYY Encontrado=0xNN
+```
