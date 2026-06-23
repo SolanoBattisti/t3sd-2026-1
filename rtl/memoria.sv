@@ -11,9 +11,10 @@ module memoria (
 
     // Write
     always_ff @(negedge clk) begin
-        if (we)
-            //$display("escrevendo %b em %h", data_i, addr);
+        if (we) begin
+            $display("[MEM] Escrevendo 0x%02h no endereço %d da memória", data_i, addr); // Print para teste
             mem[addr] <= data_i;
+        end
     end
 
     // Leitura
