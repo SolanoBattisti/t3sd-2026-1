@@ -42,8 +42,7 @@ wire sclk_fall = (~sclk_r1 &  sclk_r2);
 typedef enum logic [2:0] {
     IDLE,
     SELECT_SLAVE,
-    SELECT_REG,
-    SEND_ADDR,
+    READY_TO_RECV,
     RECV_DATA,
     MEM_WRITE,
     NEXT_REG
@@ -51,10 +50,9 @@ typedef enum logic [2:0] {
 
 state_t state;
 
-logic [5:0] bit_cnt_mosi;    // bit counter do MOSI
+logic [5:0] clk_cnt_mosi;    
 logic [5:0] bit_cnt_miso;   // bit counter do MISO
-logic [$clog2(REG_NUM)-1:0] reg_idx;    // id do registrador do sensor atual
-logic [$clog2(REG_NUM)-1:0] addr_shift;  // registrador de shift para o MOSI
+logic [$clog2(REG_NUM)-1:0] reg_idx;    // index do registrador do sensor atual
 logic [REG_SIZE-1:0] recv_shift;  // registrador de shift para o MISO
 logic regs_done; // chegou no último registrador de um dado sensor
 
@@ -67,10 +65,9 @@ always_ff @(posedge clk or posedge rst) begin
         mem_data_i <= '0;
         mem_we <= 1'b0;
         ready_o <= 1'b0;
-        bit_cnt_mosi <= '0;
+        clk_cnt_mosi <= '0;
         bit_cnt_miso <= '0;
         reg_idx <= '0;
-        addr_shift <= '0;
         recv_shift <= '0;
         regs_done <= 1'b0; 
     end 
@@ -78,11 +75,9 @@ always_ff @(posedge clk or posedge rst) begin
         case (state)
             IDLE: begin
                 if(start_i) begin
-                    //$display("start: %b", reg_id_i);
-                    ready_o <= 1'b0;
+                    ready_o <= 1'b0;    // Saindo do IDLE
                     state <= SELECT_SLAVE;
                 end else begin
-                //$display("idle: %b", reg_id_i);
                     ready_o <= 1'b1;    // Esperando
                     mem_we <= 1'b0;
                     se <= '0;
@@ -92,39 +87,36 @@ always_ff @(posedge clk or posedge rst) begin
             end
 
             SELECT_SLAVE: begin
+                clk_cnt_mosi <= '0;
                 ready_o <= 1'b0;
-                se[reg_id_i] <= 1'b1;
-                state <= SELECT_REG;
+                mosi <= 1'b0;
+                se[reg_id_i] <= 1'b1;   // ativa o 'se' do sensor selecionado
+                state <= READY_TO_RECV;
             end
 
-            SELECT_REG: begin
-                ready_o <= 1'b0;
-                addr_shift <= reg_idx;    // MOSI: Endereço de qual registrador do sensor queremos a leitura
-                bit_cnt_mosi <= '0;
-                state <= SEND_ADDR;
-            end
-
-            // Envia o endereço do registrador no MOSI (Bit mais significante, na borda de descida do SCLK)
-            SEND_ADDR: begin
-                ready_o <= 1'b0;
+            READY_TO_RECV: begin
                 bit_cnt_miso <= '0;
-                if(sclk_fall) begin
-                    mosi <= addr_shift[$clog2(REG_NUM)-1];
-                    addr_shift <= {addr_shift[$clog2(REG_NUM)-2:0], 1'b0};  // addr_shift << 1
-                    bit_cnt_mosi <= bit_cnt_mosi + 1;
-                    if (bit_cnt_mosi == ($clog2(REG_NUM) - 1)) begin
+                if(clk_cnt_mosi < 50) begin // Pequeno delay
+                    clk_cnt_mosi <= clk_cnt_mosi + 1;
+                end
+                else begin
+                    if(sclk_fall) begin
+                        mosi <= 1'b1;   // Sinal de 'ready' para o sensor
                         state <= RECV_DATA;
                     end
                 end
             end
 
-            // Recebe o dado do sensor no MISO (Bit mais significante do dado vindo do sensor, na borda de subida do SCLK)
+            // Recebe o dado do sensor no MISO (Bit mais significante do dado vindo do sensor, na borda de descida do SCLK)
             RECV_DATA: begin
+                clk_cnt_mosi <= '0;
                 ready_o <= 1'b0;
-                if (sclk_rise) begin
-                    recv_shift <= {recv_shift[REG_SIZE-2:0], miso};
+                if (sclk_fall) begin
+                    // $display("miso recebido: %b", miso); // Print para teste
+                    recv_shift <= {recv_shift[REG_SIZE-2:0], miso}; 
                     bit_cnt_miso <= bit_cnt_miso + 1;
                     if (bit_cnt_miso == REG_SIZE - 1) begin
+                        mosi <= 1'b0;
                         state <= MEM_WRITE;
                     end
                 end
@@ -148,7 +140,7 @@ always_ff @(posedge clk or posedge rst) begin
                     state <= IDLE;
                 end else begin
                     reg_idx <= reg_idx + 1;
-                    state <= SELECT_REG;
+                    state <= READY_TO_RECV;
                 end
             end
 
